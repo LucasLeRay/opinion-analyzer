@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const dotenv = require('dotenv')
 const AWS = require('aws-sdk')
 const Twit = require('twit')
@@ -35,7 +37,7 @@ async function detectSentiment(text, language, id) {
 async function getTweets(q, sinceId) {
   const res = await T.get('search/tweets', {
     q,
-    count: 3,
+    count: 100,
     locale: 'en_US',
     since_id: sinceId,
   })
