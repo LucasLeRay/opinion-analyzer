@@ -11,6 +11,7 @@ const args = minimist(process.argv.slice(2), {
   alias: {
     h: 'help',
     s: 'subject',
+    t: 'tweets',
   },
 })
 
@@ -37,6 +38,18 @@ db.defaults({
     sinceId: 0,
   },
 }).write()
+const entry = db
+  .get(args.s)
+  .get(date)
+  .value()
+if (!entry) {
+  db.set(`${args.s}.${date}`, {
+    positive: 0,
+    negative: 0,
+    neutral: 0,
+    count: 0,
+  }).write()
+}
 
 dotenv.config()
 
@@ -53,19 +66,25 @@ const T = new Twit({
 })
 
 async function detectSentiment(text, language, id) {
-  const sentiment = await comprehend
-    .detectSentiment({
-      Text: text,
-      LanguageCode: language,
-    })
-    .promise()
+  let sentiment = {}
+  try {
+    sentiment = await comprehend
+      .detectSentiment({
+        Text: text,
+        LanguageCode: language,
+      })
+      .promise()
+  } catch (err) {
+    console.error(err)
+    console.error(text)
+  }
   return { ...sentiment, id }
 }
 
 async function getTweets(q, sinceId) {
   const res = await T.get('search/tweets', {
     q,
-    count: 100,
+    count: args.t || 100,
     locale: 'en_US',
     since_id: sinceId,
   })
@@ -99,9 +118,9 @@ async function getTweets(q, sinceId) {
       Neutral: acc.Neutral + c.Neutral,
     }))
   reduced = {
-    positive: reduced.Positive,
-    negative: reduced.Negative,
-    neutral: reduced.Neutral,
+    positive: reduced ? reduced.Positive : 0,
+    negative: reduced ? reduced.Negative : 0,
+    neutral: reduced ? reduced.Neutral : 0,
   }
   const previousCount = db
     .get(args.s)
