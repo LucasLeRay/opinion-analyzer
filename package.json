@@ -6,11 +6,6 @@
   "scripts": {
     "start": "node index.js"
   },
-  "devDependencies": {
-    "eslint": "^6.7.2",
-    "eslint-config-airbnb-base": "^14.0.0",
-    "eslint-plugin-import": "^2.18.2"
-  },
   "dependencies": {
     "aws-sdk": "^2.582.0",
     "dotenv": "^8.2.0",

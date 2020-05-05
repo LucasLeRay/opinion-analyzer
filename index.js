@@ -1,149 +1,128 @@
-#!/usr/bin/env node
-
-const dotenv = require('dotenv')
-const AWS = require('aws-sdk')
-const Twit = require('twit')
-const minimist = require('minimist')
-const low = require('lowdb')
-const FileSync = require('lowdb/adapters/FileSync')
-
-const args = minimist(process.argv.slice(2), {
+const AWS = require("aws-sdk");
+const Twit = require("twit");
+const low = require("lowdb");
+const FileSync = require("lowdb/adapters/FileSync");
+require("dotenv").config();
+const args = require("minimist")(process.argv.slice(2), {
   alias: {
-    h: 'help',
-    s: 'subject',
-    t: 'tweets',
+    h: "help",
+    s: "subject",
+    t: "tweets",
   },
-})
+  default: {
+    t: 100,
+  },
+});
 
 if (!args.s) {
-  console.error('No subject.')
-  process.exit(1)
+  console.error("No subject.");
+  process.exit(1);
 }
-
-const dateObj = new Date()
-const month = dateObj.getUTCMonth() + 1
-const day = dateObj.getUTCDate()
-const year = dateObj.getUTCFullYear()
-const date = `${month}-${day}-${year}`
-const adapter = new FileSync('db.json')
-const db = low(adapter)
-db.defaults({
-  [args.s]: {
-    [date]: {
-      positive: 0,
-      negative: 0,
-      neutral: 0,
-      count: 0,
-    },
-    sinceId: 0,
-  },
-}).write()
-const entry = db
-  .get(args.s)
-  .get(date)
-  .value()
-if (!entry) {
-  db.set(`${args.s}.${date}`, {
-    positive: 0,
-    negative: 0,
-    neutral: 0,
-    count: 0,
-  }).write()
-}
-
-dotenv.config()
 
 const comprehend = new AWS.Comprehend({
-  apiVersion: '2017-11-27',
-  region: 'eu-west-1',
-})
+  apiVersion: "2017-11-27",
+  region: "eu-west-1",
+});
 
 const T = new Twit({
   consumer_key: process.env.CONSUMER_KEY,
   consumer_secret: process.env.CONSUMER_SECRET,
   access_token: process.env.ACCESS_TOKEN,
   access_token_secret: process.env.ACCESS_TOKEN_SECRET,
-})
+});
 
-async function detectSentiment(text, language, id) {
-  let sentiment = {}
+const dateObj = new Date();
+const month = dateObj.getUTCMonth() + 1;
+const day = dateObj.getUTCDate();
+const year = dateObj.getUTCFullYear();
+const date = `${month}-${day}-${year}`;
+
+const adapter = new FileSync("db.json");
+const db = low(adapter);
+db.defaults({
+  [args.s]: {
+    [date]: {
+      positive: 0,
+      negative: 0,
+      count: 0,
+    },
+    sinceId: 0,
+  },
+}).write();
+const entry = db.get(args.s).get(date).value();
+if (!entry) {
+  db.set(`${args.s}.${date}`, {
+    positive: 0,
+    negative: 0,
+    count: 0,
+  }).write();
+}
+
+async function detectSentiment(text, language) {
+  let res = {};
   try {
-    sentiment = await comprehend
+    res = await comprehend
       .detectSentiment({
         Text: text,
         LanguageCode: language,
       })
-      .promise()
+      .promise();
   } catch (err) {
-    console.error(err)
-    console.error(text)
+    console.error(err, text);
   }
-  return { ...sentiment, id }
+  return res.Sentiment;
 }
 
 async function getTweets(q, sinceId) {
-  const res = await T.get('search/tweets', {
+  const res = await T.get("search/tweets", {
     q,
-    count: args.t || 100,
-    locale: 'en_US',
+    count: args.t,
+    locale: "en_US",
     since_id: sinceId,
-  })
+  });
 
   const {
     data: { statuses },
-  } = res
+  } = res;
 
-  return statuses.map(d => ({ text: d.text, id: d.id }))
+  return statuses.map((d) => ({ text: d.text, id: d.id }));
 }
 
 (async () => {
-  const sentiments = []
-  const sinceId = db
-    .get(args.s)
-    .get('sinceId')
-    .value()
-  const tweets = await getTweets(args.s, sinceId)
+  const sinceId = db.get(args.s).get("sinceId").value();
+  const tweets = await getTweets(args.s, sinceId);
   db.get(args.s)
-    .update('sinceId', () => tweets[0].id)
-    .write()
-  for (let i = 0; i < tweets.length; i += 1) {
-    sentiments.push(detectSentiment(tweets[i].text, 'en', tweets[i].id))
-  }
-  const res = await Promise.all(sentiments)
-  let reduced = res
-    .map(sentiment => sentiment.SentimentScore)
-    .reduce((acc, c) => ({
-      Positive: acc.Positive + c.Positive,
-      Negative: acc.Negative + c.Negative,
-      Neutral: acc.Neutral + c.Neutral,
-    }))
-  reduced = {
-    positive: reduced ? reduced.Positive : 0,
-    negative: reduced ? reduced.Negative : 0,
-    neutral: reduced ? reduced.Neutral : 0,
-  }
-  const previousCount = db
-    .get(args.s)
-    .get(date)
-    .get('count')
-    .value()
+    .update("sinceId", () => tweets[0].id)
+    .write();
+  const sentiments = await Promise.all(
+    tweets.map((tweet) => detectSentiment(tweet.text, "en"))
+  );
+  console.log(sentiments);
+  let reduced = sentiments.reduce(
+    (acc, sentiment) => ({
+      positive: acc.positive + (sentiment === "POSITIVE" ? 1 : 0),
+      negative: acc.negative + (sentiment === "NEGATIVE" ? 1 : 0),
+    }),
+    {
+      positive: 0,
+      negative: 0,
+    }
+  );
+  const previousCount = db.get(args.s).get(date).get("count").value();
   db.get(args.s)
     .get(date)
     .update(
-      'positive',
-      positive => (positive * previousCount + reduced.positive)
-        / (res.length + previousCount),
+      "positive",
+      (positive) =>
+        (positive * previousCount + reduced.positive) /
+        (sentiments.length + previousCount)
     )
     .update(
-      'negative',
-      negative => (negative * previousCount + reduced.negative)
-        / (res.length + previousCount),
+      "negative",
+      (negative) =>
+        (negative * previousCount + reduced.negative) /
+        (sentiments.length + previousCount)
     )
-    .update(
-      'neutral',
-      neutral => (neutral * previousCount + reduced.neutral)
-        / (res.length + previousCount),
-    )
-    .update('count', count => count + res.length)
-    .write()
-})()
+    .update("count", (count) => count + sentiments.length)
+    .write();
+})();
