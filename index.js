@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const AWS = require("aws-sdk");
 const Twit = require("twit");
 const low = require("lowdb");
