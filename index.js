@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 const AWS = require("aws-sdk");
 const Twit = require("twit");
 const low = require("lowdb");
@@ -87,19 +85,21 @@ async function getTweets(q, sinceId) {
     data: { statuses },
   } = res;
 
-  return statuses.map((d) => ({ text: d.text, id: d.id }));
+  return statuses
+    .filter((tweet) => !tweet.retweeted_status)
+    .map((d) => ({ text: d.text, id: d.id }));
 }
 
 (async () => {
   const sinceId = db.get(args.s).get("sinceId").value();
   const tweets = await getTweets(args.s, sinceId);
+  if (tweets.length === 0) return;
   db.get(args.s)
     .update("sinceId", () => tweets[0].id)
     .write();
   const sentiments = await Promise.all(
     tweets.map((tweet) => detectSentiment(tweet.text, "en"))
   );
-  console.log(sentiments);
   let reduced = sentiments.reduce(
     (acc, sentiment) => ({
       positive: acc.positive + (sentiment === "POSITIVE" ? 1 : 0),
