@@ -86,7 +86,6 @@ async function getTweets(q, sinceId) {
   } = res;
 
   return statuses
-    .filter((tweet) => !tweet.retweeted_status)
     .map((d) => ({ text: d.text, id: d.id }));
 }
 
